@@ -26,44 +26,28 @@ What is deliberately **not** in Phase 1a:
 Phase 1b will move ECS and RDS into private subnets and add the VPC endpoints
 needed for ECR pulls, CloudWatch Logs, and Secrets Manager.
 
-## Local development
+## Application ownership and deployment contract
 
-Prerequisites:
+This branch owns infrastructure and pipeline scaffolding only. The application
+branch owns the Next.js app, FastAPI app, database models, and Alembic
+migrations.
 
-- Docker
-- Node.js 22+
-- Python 3.12+
+The app layer must conform to this Phase 1a contract:
 
-Start local Postgres:
+| Contract | Required behavior |
+| --- | --- |
+| Web container port | The web container listens on port `3000`. |
+| Orders container port | The orders container listens on port `8000`. |
+| Orders health check | `GET /health` on the orders container returns HTTP `200`. |
+| Migration command | The orders image can run `alembic upgrade head` as an ECS command override. |
+| AWS DB env vars | AWS injects `DB_HOST`, `DB_PORT`, `DB_NAME`, and `DB_USERNAME` as plain environment variables. |
+| AWS DB password | AWS injects `DB_PASSWORD` from the RDS managed Secrets Manager secret. |
+| AWS database URL | AWS does **not** inject `DATABASE_URL`; the orders app must build its connection string from the DB env vars above. |
+| Image build contexts | The deploy workflow expects web code at `apps/web` and orders code at `services/orders` once the app branch provides them. |
 
-```bash
-export POSTGRES_PASSWORD="choose-a-local-only-password"
-docker compose up -d postgres
-```
-
-Run the FastAPI order service:
-
-```bash
-cd services/orders
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-export DATABASE_URL="postgresql+psycopg://orders_app:${POSTGRES_PASSWORD}@localhost:5432/orders"
-alembic upgrade head
-uvicorn app.main:app --reload
-```
-
-Run the Next.js app in another shell:
-
-```bash
-cd apps/web
-npm install
-export ORDER_API_BASE_URL="http://localhost:8000"
-npm run dev
-```
-
-Open `http://localhost:3000` and submit an order. The page sends
-`POST /api/orders`; locally Next.js rewrites that request to FastAPI.
+The approved app schema is owned by the app branch and is expected to include
+`products`, `orders`, and `order_items`. Infrastructure must not define or
+override those tables.
 
 ## Phase 1a AWS resources
 
@@ -121,8 +105,8 @@ It should not show any application events, queues, consumers, NAT gateway, or VP
 endpoints.
 
 Important: ECS services start at desired count `0`. After Terraform creates the
-infrastructure, GitHub Actions builds real images, registers new task definition
-revisions, runs migrations, and scales services to `1`.
+infrastructure, GitHub Actions builds the app-provided images, registers new
+task definition revisions, runs migrations, and scales services to `1`.
 
 ## Deploy pipeline and Alembic migrations
 

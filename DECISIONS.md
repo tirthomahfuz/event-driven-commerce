@@ -30,8 +30,14 @@
 - Rejected: Having Terraform create services with desired count one before any application image exists.
 - Why: ECS can register a task definition that references an image tag before the image exists, but a service with desired count one would immediately try and fail to pull it. Starting at zero lets Terraform create the infrastructure first, then CI/CD supplies the application artifact and starts the services. Terraform ignores later desired-count drift so routine deploys do not fight the pipeline.
 
-## 2026-06-21 - Use current Next.js canary to avoid known audit finding
+## 2026-06-21 - Keep application code out of the infra branch
 
-- Chose: Use the current Next.js canary release for the Phase 1a web app.
-- Rejected: Staying on latest stable Next.js 16.2.9 after `npm audit` reported a moderate PostCSS advisory in its dependency tree, and rejected npm's forced fix because it would downgrade to Next 9.
-- Why: Stable framework releases are normally the safer default, but the current stable dependency tree fails the audit while the current canary clears it. This is acceptable for a learning slice, and should be revisited when a stable Next.js release includes the fix.
+- Chose: This branch owns infrastructure, pipeline scaffolding, and runtime contracts only.
+- Rejected: Defining the FastAPI app, Next.js app, Alembic migrations, or database schema in the infra branch.
+- Why: A parallel app branch owns the application layer and has an approved schema with `products`, `orders`, and `order_items`. Keeping app code out of the infra branch avoids schema conflicts and makes the boundary clear: infrastructure supplies runtime environment and deployment mechanics; the app supplies images and migrations that conform to the contract.
+
+## 2026-06-21 - Revert pre-release Next.js baseline
+
+- Chose: The app branch should use the latest stable Next.js baseline, not a canary/pre-release framework, and should either accept and document the current moderate PostCSS advisory or pin a compatible patched PostCSS version with an overrides entry.
+- Rejected: Shipping a Next.js canary as the default baseline just to clear `npm audit`.
+- Why: A pre-release framework can introduce unrelated instability into a learning project. The real tradeoff is between a known moderate advisory in the stable dependency tree and the operational uncertainty of a canary. Stable Next.js is the better default; if the PostCSS override is compatible, that is the cleaner mitigation.

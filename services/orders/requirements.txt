@@ -1,7 +1,0 @@
-alembic
-email-validator
-fastapi
-psycopg[binary]
-pydantic-settings
-sqlalchemy
-uvicorn[standard]
