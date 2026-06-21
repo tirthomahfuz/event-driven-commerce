@@ -1,0 +1,5 @@
+bucket         = "replace-with-your-bootstrap-state-bucket"
+key            = "event-driven-commerce/phase1a/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "event-driven-commerce-terraform-locks"
+encrypt        = true

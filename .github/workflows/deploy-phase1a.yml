@@ -1,0 +1,231 @@
+name: Deploy Phase 1a
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/web/**"
+      - "services/orders/**"
+      - ".github/workflows/deploy-phase1a.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  PROJECT_NAME: ${{ vars.PROJECT_NAME || 'event-commerce' }}
+  ENVIRONMENT: ${{ vars.ENVIRONMENT || 'dev' }}
+
+jobs:
+  deploy:
+    name: Build, migrate, and deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve deployment names
+        id: names
+        run: |
+          set -euo pipefail
+          account_id="$(aws sts get-caller-identity --query Account --output text)"
+          name_prefix="${PROJECT_NAME}-${ENVIRONMENT}"
+          registry="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+
+          {
+            echo "cluster=${name_prefix}"
+            echo "web_service=${name_prefix}-web"
+            echo "orders_service=${name_prefix}-orders"
+            echo "web_image=${registry}/${name_prefix}-web:${GITHUB_SHA}"
+            echo "orders_image=${registry}/${name_prefix}-orders:${GITHUB_SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push web image
+        run: |
+          set -euo pipefail
+          docker build -t "${{ steps.names.outputs.web_image }}" apps/web
+          docker push "${{ steps.names.outputs.web_image }}"
+
+      - name: Build and push orders image
+        run: |
+          set -euo pipefail
+          docker build -t "${{ steps.names.outputs.orders_image }}" services/orders
+          docker push "${{ steps.names.outputs.orders_image }}"
+
+      - name: Register new web task definition revision
+        id: web_task
+        env:
+          CLUSTER: ${{ steps.names.outputs.cluster }}
+          SERVICE: ${{ steps.names.outputs.web_service }}
+          WEB_IMAGE: ${{ steps.names.outputs.web_image }}
+        run: |
+          set -euo pipefail
+          current_task_definition="$(
+            aws ecs describe-services \
+              --cluster "$CLUSTER" \
+              --services "$SERVICE" \
+              --query 'services[0].taskDefinition' \
+              --output text
+          )"
+
+          aws ecs describe-task-definition \
+            --task-definition "$current_task_definition" \
+            --query taskDefinition > web-task-definition.json
+
+          jq '
+            del(
+              .taskDefinitionArn,
+              .revision,
+              .status,
+              .requiresAttributes,
+              .compatibilities,
+              .registeredAt,
+              .registeredBy
+            )
+            | (.containerDefinitions[] | select(.name == "web") | .image) = env.WEB_IMAGE
+          ' web-task-definition.json > web-task-definition-next.json
+
+          task_definition_arn="$(
+            aws ecs register-task-definition \
+              --cli-input-json file://web-task-definition-next.json \
+              --query 'taskDefinition.taskDefinitionArn' \
+              --output text
+          )"
+          echo "arn=$task_definition_arn" >> "$GITHUB_OUTPUT"
+
+      - name: Register new orders task definition revision
+        id: orders_task
+        env:
+          CLUSTER: ${{ steps.names.outputs.cluster }}
+          SERVICE: ${{ steps.names.outputs.orders_service }}
+          ORDERS_IMAGE: ${{ steps.names.outputs.orders_image }}
+        run: |
+          set -euo pipefail
+          current_task_definition="$(
+            aws ecs describe-services \
+              --cluster "$CLUSTER" \
+              --services "$SERVICE" \
+              --query 'services[0].taskDefinition' \
+              --output text
+          )"
+
+          aws ecs describe-task-definition \
+            --task-definition "$current_task_definition" \
+            --query taskDefinition > orders-task-definition.json
+
+          jq '
+            del(
+              .taskDefinitionArn,
+              .revision,
+              .status,
+              .requiresAttributes,
+              .compatibilities,
+              .registeredAt,
+              .registeredBy
+            )
+            | (.containerDefinitions[] | select(.name == "orders") | .image) = env.ORDERS_IMAGE
+          ' orders-task-definition.json > orders-task-definition-next.json
+
+          task_definition_arn="$(
+            aws ecs register-task-definition \
+              --cli-input-json file://orders-task-definition-next.json \
+              --query 'taskDefinition.taskDefinitionArn' \
+              --output text
+          )"
+          echo "arn=$task_definition_arn" >> "$GITHUB_OUTPUT"
+
+      - name: Run Alembic migrations on ECS
+        env:
+          CLUSTER: ${{ steps.names.outputs.cluster }}
+          SERVICE: ${{ steps.names.outputs.orders_service }}
+          TASK_DEFINITION: ${{ steps.orders_task.outputs.arn }}
+        run: |
+          set -euo pipefail
+          service_json="$(
+            aws ecs describe-services \
+              --cluster "$CLUSTER" \
+              --services "$SERVICE"
+          )"
+          subnets="$(echo "$service_json" | jq -c '.services[0].networkConfiguration.awsvpcConfiguration.subnets')"
+          security_groups="$(echo "$service_json" | jq -c '.services[0].networkConfiguration.awsvpcConfiguration.securityGroups')"
+          assign_public_ip="$(echo "$service_json" | jq -r '.services[0].networkConfiguration.awsvpcConfiguration.assignPublicIp')"
+          network_configuration="$(
+            jq -cn \
+              --argjson subnets "$subnets" \
+              --argjson securityGroups "$security_groups" \
+              --arg assignPublicIp "$assign_public_ip" \
+              '{awsvpcConfiguration:{subnets:$subnets,securityGroups:$securityGroups,assignPublicIp:$assignPublicIp}}'
+          )"
+
+          overrides="$(
+            jq -cn '{containerOverrides:[{name:"orders",command:["alembic","upgrade","head"]}]}'
+          )"
+
+          task_arn="$(
+            aws ecs run-task \
+              --cluster "$CLUSTER" \
+              --launch-type FARGATE \
+              --task-definition "$TASK_DEFINITION" \
+              --network-configuration "$network_configuration" \
+              --overrides "$overrides" \
+              --query 'tasks[0].taskArn' \
+              --output text
+          )"
+
+          if [ "$task_arn" = "None" ] || [ -z "$task_arn" ]; then
+            echo "Migration task did not start"
+            exit 1
+          fi
+
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$task_arn"
+
+          exit_code="$(
+            aws ecs describe-tasks \
+              --cluster "$CLUSTER" \
+              --tasks "$task_arn" \
+              --query 'tasks[0].containers[?name==`orders`].exitCode | [0]' \
+              --output text
+          )"
+
+          if [ "$exit_code" != "0" ]; then
+            aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task_arn"
+            echo "Migration task failed with exit code $exit_code"
+            exit 1
+          fi
+
+      - name: Deploy orders service
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${{ steps.names.outputs.cluster }}" \
+            --service "${{ steps.names.outputs.orders_service }}" \
+            --task-definition "${{ steps.orders_task.outputs.arn }}" \
+            --desired-count 1
+          aws ecs wait services-stable \
+            --cluster "${{ steps.names.outputs.cluster }}" \
+            --services "${{ steps.names.outputs.orders_service }}"
+
+      - name: Deploy web service
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${{ steps.names.outputs.cluster }}" \
+            --service "${{ steps.names.outputs.web_service }}" \
+            --task-definition "${{ steps.web_task.outputs.arn }}" \
+            --desired-count 1
+          aws ecs wait services-stable \
+            --cluster "${{ steps.names.outputs.cluster }}" \
+            --services "${{ steps.names.outputs.web_service }}"

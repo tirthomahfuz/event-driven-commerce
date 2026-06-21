@@ -1,0 +1,8 @@
+aws_region        = "us-east-1"
+project_name      = "event-commerce"
+environment       = "dev"
+github_repository = "tirthomahfuz/event-driven-commerce"
+github_branch     = "main"
+
+# Set this if your AWS account already has a GitHub Actions OIDC provider.
+# github_oidc_provider_arn = "arn:aws:iam::<account-id>:oidc-provider/token.actions.githubusercontent.com"
