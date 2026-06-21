@@ -36,6 +36,8 @@ The app layer must conform to this Phase 1a contract:
 
 | Contract | Required behavior |
 | --- | --- |
+| Canonical web path | The web application lives at `apps/web`. |
+| Canonical orders path | The orders service lives at `services/orders`. |
 | Web container port | The web container listens on port `3000`. |
 | Orders container port | The orders container listens on port `8000`. |
 | Orders health check | `GET /health` on the orders container returns HTTP `200`. |
@@ -43,11 +45,15 @@ The app layer must conform to this Phase 1a contract:
 | AWS DB env vars | AWS injects `DB_HOST`, `DB_PORT`, `DB_NAME`, and `DB_USERNAME` as plain environment variables. |
 | AWS DB password | AWS injects `DB_PASSWORD` from the RDS managed Secrets Manager secret. |
 | AWS database URL | AWS does **not** inject `DATABASE_URL`; the orders app must build its connection string from the DB env vars above. |
-| Image build contexts | The deploy workflow expects web code at `apps/web` and orders code at `services/orders` once the app branch provides them. |
+| Image build contexts | The deploy workflow builds images from `apps/web` and `services/orders`. |
 
 The approved app schema is owned by the app branch and is expected to include
 `products`, `orders`, and `order_items`. Infrastructure must not define or
 override those tables.
+
+Local development may use `DATABASE_URL` in the app branch's local environment
+files for convenience. That variable is local-only; AWS uses the discrete
+`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, and `DB_PASSWORD` contract above.
 
 ## Phase 1a AWS resources
 

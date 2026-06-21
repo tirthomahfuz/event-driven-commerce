@@ -41,3 +41,9 @@
 - Chose: The app branch should use the latest stable Next.js baseline, not a canary/pre-release framework, and should either accept and document the current moderate PostCSS advisory or pin a compatible patched PostCSS version with an overrides entry.
 - Rejected: Shipping a Next.js canary as the default baseline just to clear `npm audit`.
 - Why: A pre-release framework can introduce unrelated instability into a learning project. The real tradeoff is between a known moderate advisory in the stable dependency tree and the operational uncertainty of a canary. Stable Next.js is the better default; if the PostCSS override is compatible, that is the cleaner mitigation.
+
+## 2026-06-21 - Supersede canary workaround with stable Next.js and PostCSS override
+
+- Chose: The app branch should use latest stable Next.js and prefer a package-manager override that pins PostCSS to a patched version, such as `postcss >= 8.5.10`, if that override is compatible with the stable Next.js release.
+- Rejected: Treating the earlier canary workaround as active guidance, and rejected accepting the moderate PostCSS advisory without first trying the narrow PostCSS override.
+- Why: Stable Next.js keeps the framework baseline predictable, while a targeted PostCSS override addresses the advisory with less blast radius than moving the whole framework to a pre-release. If the override proves incompatible in the app branch, the fallback is to document the moderate advisory explicitly until stable Next.js updates its dependency tree.
