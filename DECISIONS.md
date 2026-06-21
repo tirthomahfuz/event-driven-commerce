@@ -59,13 +59,37 @@ The log is append-only. Newest entries go at the bottom.
   order of priced line items," while staying event-friendly (UUIDs) and
   migration-friendly (text status) for later phases.
 
-## 2026-06-21 — Env var contract: DATABASE_URL
+## 2026-06-21 — DB connection config: dual-source (supersedes "DATABASE_URL only")
 
-- **Chose:** The order service reads its Postgres connection from a single env
-  var, `DATABASE_URL` (standard `postgresql://…` URL). This name/shape is the
-  contract shared with the infra agent; locally it comes from `.env.local`, in
-  AWS it comes from Secrets Manager.
-- **Rejected:** Separate `DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD` vars.
-- **Why:** One URL is the simplest stable contract across local/CI/AWS and lets
-  the secret source change without any app code change. Driver selection (e.g.
-  psycopg) is handled inside the app, not in the contract.
+- **Chose:** The config layer accepts two sources, in priority order:
+  1. If `DATABASE_URL` is set (local dev via `.env.local`), use it directly.
+  2. Otherwise assemble the connection URL from `DB_HOST`, `DB_PORT`, `DB_NAME`,
+     `DB_USERNAME`, `DB_PASSWORD` (the AWS path).
+  `.env.local` continues to use `DATABASE_URL` for local simplicity.
+- **Rejected:** The earlier "`DATABASE_URL` only, discrete vars rejected"
+  decision — now overridden.
+- **Why:** The RDS-managed secret in Secrets Manager **rotates** and exposes a
+  JSON object with a `password` field, not a ready-made connection URL. The ECS
+  task definition therefore injects `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USERNAME`
+  as plain env and sources `DB_PASSWORD` separately from the rotating secret, so
+  AWS literally cannot hand us a single `DATABASE_URL`. Supporting both keeps
+  local dev one-line simple while matching how AWS delivers rotating creds.
+  Assembling the URL in-process also means rotation "just works": each task/
+  process start reads the current password and builds a fresh URL. The password
+  is URL-encoded during assembly so special characters from rotation are safe.
+
+## 2026-06-21 — Service runtime contract (port 8000, /health, migrations-in-image)
+
+- **Chose:** The service listens on **port 8000**; exposes **`GET /health`**
+  returning 200 as the ALB target health check; and the **same container image**
+  can run `alembic upgrade head` via command override (CI runs migrations as a
+  one-off ECS task using this image), so Alembic is invokable from the container,
+  not only locally.
+- **Rejected:** A separate dedicated migration image; running migrations only on
+  developer laptops; an arbitrary/!=8000 app port.
+- **Why:** The ALB needs a fixed port and a cheap liveness endpoint to decide
+  routing. One image for both API and migrations guarantees migration code
+  matches running code (no drift) and is the standard ECS "run-task migrations,
+  then start service" pattern. `/health` is intentionally a cheap liveness check
+  (process up), not a DB readiness probe — see Step 3 design note for the
+  tradeoff.
