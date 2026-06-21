@@ -1,5 +1,5 @@
 [project]
-name = "order-service"
+name = "orders"
 version = "0.1.0"
 description = "Phase 1 order service (FastAPI + Postgres)"
 requires-python = ">=3.12"
