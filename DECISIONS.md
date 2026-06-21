@@ -31,3 +31,41 @@ The log is append-only. Newest entries go at the bottom.
 - **Why:** Secrets in Terraform end up in plaintext state. Secrets in task
   definitions show up in the ECS console and CloudFormation/Terraform diffs.
   Starting clean avoids a painful retrofit later and models real-world hygiene.
+
+## 2026-06-21 — Order idempotency: minimal column now vs. full table later
+
+- **Chose:** A nullable, `UNIQUE` `idempotency_key` column on `orders`, checked
+  on the create-order path: if a key is supplied and already exists, return the
+  existing order instead of creating a duplicate. Nothing more.
+- **Rejected (for now):** A dedicated `idempotency_keys` table that stores the
+  key, a request fingerprint, the response payload, and a TTL — plus any async
+  retry/replay machinery.
+- **Why:** Duplicate orders from a client retry or double-submit are a real
+  Phase 1 correctness bug, not a future concern, so we fix it now. But the full
+  table (request hashing, cached responses, expiry) is weight we don't need until
+  the async phases, where retries and at-least-once delivery make it genuinely
+  necessary. The column gives correct dedupe today; we upgrade to the table when
+  eventing arrives, and we'll log that upgrade when it happens.
+
+## 2026-06-21 — Phase 1 schema confirmed (products, orders, order_items)
+
+- **Chose:** Three tables. Money as integer `*_cents` + `currency`. UUID primary
+  keys (`gen_random_uuid()`). `status` as `text` + `CHECK`. Line items snapshot
+  `unit_price_cents`. `orders` carries `trace_id` (nullable) and the
+  `idempotency_key` above. No `customers`/`users` table in Phase 1.
+- **Rejected:** `NUMERIC` money, `bigserial` PKs, native PG enum for status, a
+  separate identity table — each deferred with reasons captured in Step 1.
+- **Why:** Smallest schema that truthfully represents "a customer placed an
+  order of priced line items," while staying event-friendly (UUIDs) and
+  migration-friendly (text status) for later phases.
+
+## 2026-06-21 — Env var contract: DATABASE_URL
+
+- **Chose:** The order service reads its Postgres connection from a single env
+  var, `DATABASE_URL` (standard `postgresql://…` URL). This name/shape is the
+  contract shared with the infra agent; locally it comes from `.env.local`, in
+  AWS it comes from Secrets Manager.
+- **Rejected:** Separate `DB_HOST`/`DB_PORT`/`DB_USER`/`DB_PASSWORD` vars.
+- **Why:** One URL is the simplest stable contract across local/CI/AWS and lets
+  the secret source change without any app code change. Driver selection (e.g.
+  psycopg) is handled inside the app, not in the contract.

@@ -1,0 +1,26 @@
+# Local-only stack for the Phase 1 order service.
+# Postgres ONLY. No app container, no AWS, no event backbone here.
+# The FastAPI app and Alembic run on the host and connect via localhost:5432.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: orders-postgres
+    restart: unless-stopped
+    # Credentials come from .env.local (git-ignored, never committed).
+    env_file:
+      - .env.local
+    ports:
+      - "5432:5432"
+    volumes:
+      - orders_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # $$ escapes to a literal $ so the variable expands inside the container,
+      # using the values injected from .env.local.
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  orders_pgdata:
