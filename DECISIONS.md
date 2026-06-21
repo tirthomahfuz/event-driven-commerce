@@ -47,3 +47,9 @@
 - Chose: The app branch should use latest stable Next.js and prefer a package-manager override that pins PostCSS to a patched version, such as `postcss >= 8.5.10`, if that override is compatible with the stable Next.js release.
 - Rejected: Treating the earlier canary workaround as active guidance, and rejected accepting the moderate PostCSS advisory without first trying the narrow PostCSS override.
 - Why: Stable Next.js keeps the framework baseline predictable, while a targeted PostCSS override addresses the advisory with less blast radius than moving the whole framework to a pre-release. If the override proves incompatible in the app branch, the fallback is to document the moderate advisory explicitly until stable Next.js updates its dependency tree.
+
+## 2026-06-21 - Lock canonical app paths and Dockerfile ownership
+
+- Chose: The canonical app paths are `apps/web` for the Next.js app and `services/orders` for the FastAPI orders service. The app branch owns the Dockerfiles at those paths.
+- Rejected: Using `services/order-service`, and rejected keeping reference application Dockerfiles in the infra branch.
+- Why: The deploy workflow, ECR repositories, ECS task definitions, and service names are all aligned around `web` and `orders`. A single owner for application Dockerfiles prevents infra from accidentally freezing app implementation details while still letting the pipeline consume the app branch's images.

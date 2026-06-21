@@ -46,6 +46,7 @@ The app layer must conform to this Phase 1a contract:
 | AWS DB password | AWS injects `DB_PASSWORD` from the RDS managed Secrets Manager secret. |
 | AWS database URL | AWS does **not** inject `DATABASE_URL`; the orders app must build its connection string from the DB env vars above. |
 | Image build contexts | The deploy workflow builds images from `apps/web` and `services/orders`. |
+| Application Dockerfiles | The app branch owns `apps/web/Dockerfile` and `services/orders/Dockerfile`; this infra branch does not provide reference Dockerfiles. |
 
 The approved app schema is owned by the app branch and is expected to include
 `products`, `orders`, and `order_items`. Infrastructure must not define or
