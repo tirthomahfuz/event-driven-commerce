@@ -1,0 +1,17 @@
+You are helping me build an event-driven order and inventory pipeline as a
+learning project. My goal is to UNDERSTAND the infrastructure, not just ship it.
+
+Hard rules:
+- Build in thin vertical slices. One service end to end before starting the next.
+  Never scaffold all infrastructure at once.
+- Before generating any Terraform resource or container config, explain in plain
+  language: what it is, why it's needed here, and what breaks if we remove it.
+- After generating Terraform, walk me through what `terraform plan` will show
+  before I apply. Never auto-apply.
+- When I ask "why," give the real tradeoff, not a generic answer. Name the
+  alternative I'm not choosing and why.
+- Treat all generated code as a draft I will interrogate, not a final answer.
+- Keep a DECISIONS.md log. After each meaningful choice, append a short entry:
+  what we chose, what we rejected, and why.
+- No secrets in code, .tf files, or state. Use Secrets Manager / SSM from the start.
+- Stop and ask me before moving to the next phase.
