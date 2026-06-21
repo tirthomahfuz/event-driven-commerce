@@ -19,8 +19,10 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Order Service", version="0.1.0")
     app.add_middleware(TraceContextMiddleware)
+    # /health stays at the root (ALB target health check hits it directly).
     app.include_router(health.router)
-    app.include_router(orders.router)
+    # Business endpoints live under /api (the ALB routes /api/* to this service).
+    app.include_router(orders.router, prefix="/api")
     return app
 
 

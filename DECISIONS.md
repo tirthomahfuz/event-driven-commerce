@@ -122,3 +122,13 @@ The log is append-only. Newest entries go at the bottom.
   raw overrides, and keeps migration code == running code (no image drift). Cost
   is one small shell script. Verified locally (stubbed): default/`api` → uvicorn
   :8000 (honors `APP_PORT`), `migrate` → `alembic upgrade head`, passthrough OK.
+
+## 2026-06-21 — HTTP path layout: orders under /api, health at root
+
+- **Chose:** Business endpoints are served under `/api` (`POST /api/orders`,
+  `GET /api/orders/{id}`); `GET /health` stays at the root.
+- **Rejected:** Everything at root (`/orders`), or `/health` also under `/api`.
+- **Why:** The ALB routes `/api/*` to this service, so the app owns that prefix;
+  keeping `/health` at the root matches the target-group health check, which hits
+  the container directly rather than through the `/api` path rule. This is the
+  path the Step 5 smoke test (and the infra agent's listener rules) expect.
