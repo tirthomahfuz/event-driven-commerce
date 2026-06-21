@@ -1,0 +1,11 @@
+# Keep secrets, local junk, and build artifacts OUT of the image build context.
+.env
+.env.*
+.venv/
+**/__pycache__/
+*.pyc
+*.egg-info/
+.git/
+.gitignore
+docker-compose.yml
+*.md

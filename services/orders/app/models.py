@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    MetaData,
     String,
     Text,
     UniqueConstraint,
@@ -26,16 +27,28 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+# Deterministic constraint/index names so models and migrations agree exactly,
+# which keeps `alembic check` clean. Explicitly-named constraints below keep
+# their literal names; this convention only fills in the unnamed ones
+# (primary keys, foreign keys, the column-level unique on products.sku).
+NAMING_CONVENTION = {
+    "ix": "ix_%(table_name)s_%(column_0_name)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
 
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (
-        CheckConstraint("price_cents >= 0", name="ck_products_price_nonneg"),
-        CheckConstraint("stock_quantity >= 0", name="ck_products_stock_nonneg"),
+        CheckConstraint("price_cents >= 0", name="price_nonneg"),
+        CheckConstraint("stock_quantity >= 0", name="stock_nonneg"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -63,9 +76,9 @@ class Product(Base):
 class Order(Base):
     __tablename__ = "orders"
     __table_args__ = (
-        CheckConstraint("total_cents >= 0", name="ck_orders_total_nonneg"),
+        CheckConstraint("total_cents >= 0", name="total_nonneg"),
         CheckConstraint(
-            "status IN ('pending', 'placed', 'cancelled')", name="ck_orders_status"
+            "status IN ('pending', 'placed', 'cancelled')", name="status"
         ),
         UniqueConstraint("idempotency_key", name="uq_orders_idempotency_key"),
     )
@@ -102,8 +115,8 @@ class Order(Base):
 class OrderItem(Base):
     __tablename__ = "order_items"
     __table_args__ = (
-        CheckConstraint("quantity > 0", name="ck_order_items_qty_pos"),
-        CheckConstraint("unit_price_cents >= 0", name="ck_order_items_price_nonneg"),
+        CheckConstraint("quantity > 0", name="qty_pos"),
+        CheckConstraint("unit_price_cents >= 0", name="price_nonneg"),
         UniqueConstraint("order_id", "product_id", name="uq_order_items_order_product"),
     )
 

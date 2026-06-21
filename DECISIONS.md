@@ -93,3 +93,32 @@ The log is append-only. Newest entries go at the bottom.
   then start service" pattern. `/health` is intentionally a cheap liveness check
   (process up), not a DB readiness probe — see Step 3 design note for the
   tradeoff.
+
+## 2026-06-21 — Alembic: hand-written initial migration + naming convention
+
+- **Chose:** A hand-written `0001_initial` migration that mirrors `models.py`,
+  plus a deterministic `MetaData` naming convention on `Base` so PK/FK/unique/
+  check names are identical between models and migration. Check constraints use
+  short names (`price_nonneg`, `status`, ...) and let the convention add the
+  `ck_<table>_` prefix. `alembic check` is run against real Postgres in Step 5 to
+  prove no model/migration drift; models are the source of truth if they differ.
+- **Rejected:** Autogenerating the first migration (can't here — no DB in the
+  build VM) and leaving constraints unnamed (autogenerate then reports spurious
+  drift because reflected names differ from model names).
+- **Why:** Deterministic names are the documented prerequisite for clean
+  autogenerate / `alembic check`. The offline `--sql` render caught a real
+  double-prefix bug (`ck_products_ck_products_...`) before any DB was touched.
+  `compare_server_default` is left off in env.py to avoid false drift from
+  Postgres normalizing defaults (e.g. `'USD'::character varying`).
+
+## 2026-06-21 — One image, two roles via entrypoint dispatcher
+
+- **Chose:** A `docker-entrypoint.sh` dispatcher: `api` (default) runs uvicorn on
+  `:8000`; `migrate` runs `alembic upgrade head`; anything else is exec'd as-is.
+  CI / one-off task runs the SAME image with the `migrate` command override.
+- **Rejected:** A bare `CMD uvicorn` where CI passes the full `alembic upgrade
+  head` string; a separate dedicated migration image.
+- **Why:** Gives the infra/CI side a clean, documented verb while still allowing
+  raw overrides, and keeps migration code == running code (no image drift). Cost
+  is one small shell script. Verified locally (stubbed): default/`api` → uvicorn
+  :8000 (honors `APP_PORT`), `migrate` → `alembic upgrade head`, passthrough OK.
